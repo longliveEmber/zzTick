@@ -23,7 +23,7 @@ Sit down with `/heal` and a small window shows how long until your next recovery
 | **Accurate model** | Retail or LandSandBoat (private server) formulas, re-synced to every real tick |
 | **Bonuses read for you** | Gear "HP/MP recovered while healing", food, Signet/Sanction/Sigil, Clear Mind I-VI |
 | **Level Sync aware** | Uses your synced level and shows a "Synced Lv NN" badge |
-| **9 themes** | Frames, HP/MP mini bars and icons, bundled fonts |
+| **Themes** | Frames, HP/MP mini bars and icons, bundled fonts |
 | **Effects** | Moving shine, leading-edge spark, tick glint, number roll-up, border comet when full |
 | **Full-heal chime** | Optional sound when you're fully rested, with volume and your own `.wav` files |
 | **Compact mode** | One-line window that fits its row |
