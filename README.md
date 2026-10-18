@@ -1,6 +1,6 @@
 **A themed resting timer for Final Fantasy XI on Ashita v4.**
 
-Sit down with `/heal` and a small window shows how long until your next recovery tick, what your HP and MP will be after it, and how many ticks you need to be full. Stand up and it goes away. It knows the real tick timing (20 s, then every 10 s), re-syncs itself to the actual HP/MP gains, and reads your gear, food, Clear Mind and Signet bonuses so the numbers match what you get.
+Sit down with `/heal` and a small window shows how long until your next recovery tick, what your HP and MP will be after it, and how many ticks you need to be full. Stand up and it goes away. It knows the real tick timing, re-syncs itself to the actual HP/MP gains, and reads your gear, food, Clear Mind and Signet bonuses so the numbers match what you get.
 
 ## Install
 
