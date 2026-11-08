@@ -10,7 +10,7 @@
 
 addon.name    = 'zztick';
 addon.author  = 'Banedon';
-addon.version = '1.1.4';
+addon.version = '1.1.5';
 addon.desc    = 'Countdown to the next resting (/heal) tick with projected HP/MP.';
 addon.link    = 'https://ashitaxi.com/';
 
@@ -203,6 +203,8 @@ local rt = {
         hp    = { k1 = -1, k2 = -1, k3 = -1, k4 = nil, s = '' },
         mp    = { k1 = -1, k2 = -1, k3 = -1, k4 = nil, s = '' },
         full  = { k1 = -2, k2 = -1, s = '' },
+        cfull = { k1 = -1, k2 = -1, k3 = -1, k4 = -1, k5 = -1, at = -1, ticks = nil },   -- 1.1.5: compact time till full
+        cfullc = { k1 = nil, k2 = nil, k3 = nil, s = '' },                                -- 1.1.5: classic compact text
         last  = { k1 = -1, k2 = -1, k3 = -1, k4 = -1, s = '' },
         dbg   = { k1 = -1, k2 = -1, k3 = -1, k4 = -1, k5 = -1, s = '' },
     },
@@ -949,6 +951,8 @@ local SL = {
     tick = slot(nil, function (n) return 'Tick ' .. tick_txt(n); end),
     sync = slot('Synced Lv %d'),
     csync = slot('Sync %d'),
+    cfull = slot(nil, model.format_clock),   -- 1.1.5: compact time till full (whole seconds)
+    cnone = { v = 0, s = '--', w = -1, g = -1 },  -- 1.1.5: no recovery / cannot fill
 };
 local function tval_slot(rem)
     local sl = SL.tval;
@@ -956,6 +960,32 @@ local function tval_slot(rem)
     if (tenths < 0) then tenths = 0; end
     if (sl.v ~= tenths) then sl.v = tenths; sl.s = sformat('%d.%ds', floor(tenths / 10), tenths % 10); sl.w = -1; end
     return sl;
+end
+
+--[[
+* Compact time till full (1.1.5): one end slot on the compact row, counting to the LAST stat to fill.
+* Returns kind, which:
+*   kind  'time' (SL.cfull holds the time), 'full' (everything full), 'none' (blocked / no recovery).
+*   which nil = both still filling, 'HP' / 'MP' = only that stat is still filling.
+* The tick count is cached (recomputed when a value changes, or every 0.5 s for food/ctx changes),
+* so the per-frame cost is one compare and the seconds update.
+--]]
+local function compact_full(ctx, n, remaining, eff_hp, eff_mp, has_mp)
+    local v, c = rt.view, rt.sc.cfull;
+    if (ctx.blocked) then return 'none', nil; end
+    local mmp = has_mp and v.mmp or 0;
+    if (c.k1 ~= n or c.k2 ~= eff_hp or c.k3 ~= eff_mp or c.k4 ~= v.mhp or c.k5 ~= mmp or rt.now - c.at > 0.5) then
+        c.k1, c.k2, c.k3, c.k4, c.k5, c.at = n, eff_hp, eff_mp, v.mhp, mmp, rt.now;
+        c.ticks = model.ticks_to_full(n, eff_hp, eff_mp, v.mhp, mmp, ctx);
+    end
+    local ticks = c.ticks;
+    if (ticks == nil) then return 'none', nil; end
+    if (ticks == 0) then return 'full', nil; end
+    local secs = remaining + (ticks - 1) * rt.tracker.interval;
+    slot_set(SL.cfull, ceil(secs - 1e-6));
+    local which = nil;
+    if (has_mp and v.fhp ~= v.fmp) then which = v.fhp and 'MP' or 'HP'; end
+    return 'time', which;
 end
 
 --[[
@@ -978,6 +1008,7 @@ local function cd_measure(meas, gen)
         if (w > dw) then dw = w; end
     end
     CD.dw, CD.dot, CD.sw = dw, meas('.') or 0, meas('s') or 0;
+    CD.colon, CD.h = meas(':') or 0, meas('h') or 0;   -- 1.1.5: compact time till full (m:ss / 1h40)
     CD.ok = dw > 0 and type(CD.dot) == 'number' and CD.dot > 0 and type(CD.sw) == 'number' and CD.sw > 0;
     CD.g = gen;
     rt.stats.cd_measures = (rt.stats.cd_measures or 0) + 1;
@@ -987,6 +1018,8 @@ local function cd_width(nd)
     if (not CD.ok) then return nil; end
     return nd * CD.dw + CD.dot + CD.dw + CD.sw;
 end
+-- 1.1.5: the time-till-full clock can use the cells too (needs ':' and 'h' widths).
+local function clock_ok() return CD.ok and (CD.colon or 0) > 0 and (CD.h or 0) > 0; end
 -- Small gap between the countdown and the right edge (scaled).
 local function cd_pad_r() return floor(3 * (rt.settings.scale or 1.0) + 0.5); end
 
@@ -1043,6 +1076,7 @@ local function rebuild_layout(classic, has_mp)
     -- countdown cells, measured in the numbers font (role push happens inside measure)
     cd_measure(function (str) return (measure(str, 'num')) end, rt.wgen + 1);
     o.timer_w = cd_width(CD_INT_DIGITS);
+    o.clock_w = clock_ok() and (4 * CD.dw + CD.colon) or nil;   -- 1.1.5: '88:88' in cells
     o.timer_pad = classic and 0 or cd_pad_r();
     style.layout(o, measure, rt.L);
     rt.L.timer_pad = o.timer_pad;
@@ -1100,6 +1134,39 @@ local function draw_countdown(col, sl, right, first, fb, ol)
     cd_glyph(col, 's', x, false, fb, ol);
     rt.stats.cd_draws = (rt.stats.cd_draws or 0) + 1;
 end
+--[[
+* Time till full in fixed cells (1.1.5), the same idea as the countdown: every digit sits centered in a
+* cell as wide as the widest digit, so '1:11' and '1:47' line up and the digits never shift.
+* Characters: digits, ':' and 'h' (see model.format_clock). Call with the numbers font pushed.
+--]]
+local sbyte = string.byte;
+local function clock_w(str)
+    local w = 0;
+    for i = 1, #str do
+        local b = sbyte(str, i);
+        if (b >= 48 and b <= 57) then w = w + CD.dw; elseif (b == 58) then w = w + CD.colon; else w = w + CD.h; end
+    end
+    return w;
+end
+local function draw_clock(col, sl, right, first, fb, ol)
+    local str = sl.s;
+    if (not clock_ok()) then text_right(col, str, slot_w(sl), right, first, fb, ol); return; end
+    local dw, W = CD.dw, CD.w;
+    local x = rt.L.pad + right - clock_w(str);
+    for i = 1, #str do
+        local b = sbyte(str, i);
+        if (b >= 48 and b <= 57) then
+            local d = b - 48;
+            cd_glyph(col, DIGS[d], x + (dw - W[d]) * 0.5, first, fb, ol); x = x + dw;
+        elseif (b == 58) then
+            cd_glyph(col, ':', x, first, fb, ol); x = x + CD.colon;
+        else
+            cd_glyph(col, 'h', x, first, fb, ol); x = x + CD.h;
+        end
+        first = false;
+    end
+end
+
 if (rawget(_G, 'ZZTICK_TEST')) then
     rt._draw_countdown, rt._tval_slot, rt._push_role, rt._pop_role, rt._CD = draw_countdown, tval_slot, push_role, pop_role, CD;
     rt._push_font = push_font;
@@ -1272,7 +1339,24 @@ local function draw_classic_body(st, ctx, remaining, progress, n, eff_hp, eff_mp
         end
         if (s.show_mp and has_mp) then
             if (not first) then imgui.SameLine(); end
-            draw_text(s.col_mp, stat_str(rt.sc.mp, 'MP', eff_mp, pmp, gmp, rt.view.fmp), fb, ol);
+            draw_text(s.col_mp, stat_str(rt.sc.mp, 'MP', eff_mp, pmp, gmp, rt.view.fmp), fb, ol); first = false;
+        end
+        if (s.show_full) then
+            -- 1.1.5: time till full at the end of the row ("Full in 1:47", "MP full in 0:47", "Full", "--")
+            if (not first) then imgui.SameLine(); end
+            local kind, which = compact_full(ctx, n, remaining, eff_hp, eff_mp, has_mp);
+            local c, t = rt.sc.cfullc, SL.cfull.s;
+            if (c.k1 ~= kind or c.k2 ~= which or c.k3 ~= t) then
+                c.k1, c.k2, c.k3 = kind, which, t;
+                if (kind == 'full') then c.s = 'Full';
+                elseif (kind == 'none') then c.s = '--';
+                else c.s = (which and (which .. ' full in ') or 'Full in ') .. t; end
+            end
+            local col = s.col_text;
+            if (kind == 'none') then col = WARN_COLOR;
+            elseif (which == 'MP') then col = s.col_mp;
+            elseif (which == 'HP') then col = s.col_hp; end
+            draw_text(col, c.s, fb, ol);
         end
     else
         if (s.show_timer) then draw_text(wait_col(s.col_timer), timer_str(remaining, n), fb, ol); end
@@ -1546,6 +1630,57 @@ local function compact_stat(first, x, lbl, col, proj_sl, gain_sl, blocked, th, f
     pop_role(p);
 end
 
+-- Hourglass (1.1.5): top and bottom bars, two crossing sides, sand in the lower bulb.
+local function fx_glass(dl, cx, cy, sz, col)
+    local hw, hh = sz * 0.30, sz * 0.44;
+    local t = max(1.0, sz * 0.10);
+    local top, bot = cy - hh, cy + hh;
+    dl:AddLine(vec(V1, cx - hw - t * 0.5, top), vec(V2, cx + hw + t * 0.5, top), col, t);
+    dl:AddLine(vec(V1, cx - hw - t * 0.5, bot), vec(V2, cx + hw + t * 0.5, bot), col, t);
+    dl:AddLine(vec(V1, cx - hw * 0.85, top), vec(V2, cx + hw * 0.85, bot), col, t);
+    dl:AddLine(vec(V1, cx + hw * 0.85, top), vec(V2, cx - hw * 0.85, bot), col, t);
+    dl:AddTriangleFilled(vec(V1, cx, cy + hh * 0.30), vec(V2, cx + hw * 0.62, bot), vec(V3, cx - hw * 0.62, bot), col);
+end
+
+--[[
+* Compact end slot (1.1.5): divider, hourglass and time till full, right-aligned in its fixed slot.
+* Color: dim while both fill, the stat's color when only HP or MP is left, gain green "Full" when
+* everything is full (no hourglass), warn "--" when recovery is blocked or cannot fill.
+--]]
+local function compact_full_slot(first, th, ctx, n, remaining, eff_hp, eff_mp, has_mp, fb, ol)
+    local L = rt.L;
+    local kind, which = compact_full(ctx, n, remaining, eff_hp, eff_mp, has_mp);
+    local col = th.dim;
+    if (kind == 'full') then col = th.gain;
+    elseif (kind == 'none') then col = th.warn;
+    elseif (which == 'MP') then col = th.mp;
+    elseif (which == 'HP') then col = th.hp; end
+    local p, str, tx, sl = 0, LBL.full.s, L.c_full_x, nil;
+    local right = L.c_full_x + L.c_glass_w + L.c_full_w;
+    if (kind ~= 'full') then
+        p = push_role('num');
+        if (CD.g ~= rt.wgen) then cd_measure(calc_w, rt.wgen); end
+        sl = (kind == 'time') and SL.cfull or SL.cnone;
+        str = sl.s;
+        tx = right - ((kind == 'time' and clock_ok()) and clock_w(str) or slot_w(sl));
+    end
+    local x = L.pad + tx;
+    if (first) then imgui.SetCursorPosX(x); else imgui.SameLine(x); end
+    local dl = imgui.GetWindowDrawList();
+    local sx, sy = imgui.GetCursorScreenPos();
+    if (dl ~= nil and sx ~= nil) then
+        local ox = sx - tx;              -- screen x of content x 0
+        local h = L.text_h or 13;
+        if (L.c_full_x > 0) then
+            local dx = floor(ox + L.c_full_x - L.gap * 0.75) + 0.5;
+            dl:AddLine(vec(V1, dx, sy + h * 0.12), vec(V2, dx, sy + h * 0.88), u(th.rule or th.dim, 0.6), 1);
+        end
+        if (kind ~= 'full') then fx_glass(dl, ox + L.c_full_x + L.c_glass_w * 0.42, sy + h * 0.5, h * 0.78, u(col)); end
+    end
+    if (kind == 'time') then draw_clock(col, sl, right, first, fb, ol); else draw_text(col, str, fb, ol); end
+    pop_role(p);
+end
+
 local function draw_theme_body(th, st, ctx, remaining, progress, n, eff_hp, eff_mp, php, pmp, ghp, gmp, has_mp, fb, ol)
     local s, L, fx = rt.settings, rt.L, rt.fx;
     local dl = imgui.GetWindowDrawList();
@@ -1579,6 +1714,7 @@ local function draw_theme_body(th, st, ctx, remaining, progress, n, eff_hp, eff_
         end
         if (s.show_hp) then compact_stat(first, L.c_hp_x, LBL.hp, th.hp, slot_set(SL.hproj, php), slot_set(SL.hgain, ghp), blocked, th, fb, ol, rt.view.fhp, 1); first = false; end
         if (s.show_mp and has_mp) then compact_stat(first, L.c_mp_x, LBL.mp, th.mp, slot_set(SL.mproj, pmp), slot_set(SL.mgain, gmp), blocked, th, fb, ol, rt.view.fmp, 2); first = false; end
+        if (s.show_full) then compact_full_slot(first, th, ctx, n, remaining, eff_hp, eff_mp, has_mp, fb, ol); first = false; end
         if (first) then imgui.Text(''); end
     else
         -- header strip with moon glyph, title and tick number
@@ -2346,6 +2482,7 @@ local function cfg_tab_general()
         cfg_check('Gain amounts (+N)', 'show_gain');
         cfg_check('Tick number', 'show_tick_no');
         cfg_check('Ticks / time to full', 'show_full');
+        imgui.ShowHelp('Normal mode: a line with the ticks and time until HP and MP are full. Compact mode: the time at the end of the row, behind an hourglass. It counts to the last stat to fill and takes that stat\'s color when only HP or MP is left.', true);
         cfg_check('Food and its bonus', 'show_food');
         imgui.ShowHelp('A line with the food you ate and the healing bonus it adds, while the Food effect lasts. Hover it for the bonus breakdown.', true);
         cfg_check('Food messages in chat', 'food_chat');

@@ -45,7 +45,7 @@ Vana'diel Gold (default), Crystal Blue, Midnight, Ember Forge, Windurst Verdant,
 
 ### General
 - **Window:** lock position, title bar, compact mode, scale, background opacity, bar height, line padding, width (compact mode always fits its one row; your width comes back when it's off), exact X/Y.
-- **Lines:** countdown, progress bar, HP, MP, gain amounts, tick number, ticks/time to full, food and its bonus, Level Sync badge, and a "last observed gain" diagnostic line.
+- **Lines:** countdown, progress bar, HP, MP, gain amounts, tick number, ticks/time to full (in compact mode: the time at the end of the row, behind an hourglass), food and its bonus, Level Sync badge, and a "last observed gain" diagnostic line.
 
 ### Style
 - Theme and corner rounding.

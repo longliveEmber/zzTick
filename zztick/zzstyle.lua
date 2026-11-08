@@ -186,6 +186,7 @@ M.WORST = {
     tick        = 'Tick 888',
     sync        = 'Synced Lv 88',    -- header badge (Level Sync / Level Restriction)
     csync       = 'Sync 88',         -- compact badge
+    cfull       = '88:88',           -- compact time till full (1.1.5)
     full        = 'MP full in 888 ticks (88m 88s)',  -- per-stat wording (1.2.2)
     blocked     = 'No recovery (Disease/Plague/Curse)',
     last        = 'Last: +999 HP / +999 MP (exp 999 / 999)',
@@ -198,6 +199,7 @@ M.WORST = {
     c_gain      = '  (+999)',
     c_cstat     = 'HP 9999 (+999)',
     c_cstat_ng  = 'HP 9999',
+    c_cfull     = 'MP full in 88:88',
 };
 M.LABEL_TIMER = 'Next tick';
 M.LABEL_TITLE = 'Resting';
@@ -228,6 +230,7 @@ function M.layout(o, measure, L)
             local stat = o.show_gain and W.c_cstat or W.c_cstat_ng;
             if (o.show_hp) then w = w + measure(stat, 'body'); items = items + 1; end
             if (o.show_mp) then w = w + measure(stat, 'body'); items = items + 1; end
+            if (o.show_full) then w = w + measure(W.c_cfull, 'body'); items = items + 1; end
             cw = w + max(0, items - 1) * sp;
             if (o.show_bar) then cw = max(cw, 160 * sc); end
         else
@@ -252,7 +255,8 @@ function M.layout(o, measure, L)
             -- [timer] [HP proj +g] [MP proj +g], each in a fixed slot
             local x = 0;
             L.c_timer_r = 0;
-            if (o.show_timer) then x = tval; L.c_timer_r = x; x = x + gap * 1.5; end
+            -- countdown: fixed cells plus the same few spare pixels as the full window (1.1.5)
+            if (o.show_timer) then x = tval + (o.timer_pad or 0); L.c_timer_r = x; x = x + gap * 1.5; end
             L.c_sync_x = x;
             if (o.show_sync) then L.c_sync_w = measure(W.csync, 'body'); x = x + L.c_sync_w + gap * 1.5; end
             local slot = label + gap * 0.5 + num + (o.show_gain and (gap * 0.5 + gain) or 0);
@@ -260,6 +264,15 @@ function M.layout(o, measure, L)
             if (o.show_hp) then x = x + slot + gap * 1.5; end
             L.c_mp_x = x;
             if (o.show_mp) then x = x + slot + gap * 1.5; end
+            -- time till full (1.1.5): | hourglass + right-aligned time (or "Full"), after a divider in the gap
+            L.c_full_x, L.c_glass_w, L.c_full_w = x, 0, 0;
+            if (o.show_full) then
+                L.c_glass_w = (o.icon_w or 14 * sc) * 0.85;
+                -- digits in fixed cells (o.clock_w) plus a few spare pixels between the hourglass and the time
+                L.c_full_w = max(o.clock_w or measure(W.cfull, 'num'), measure('--', 'num'), measure('Full', 'body') - L.c_glass_w)
+                    + 3 * sc;
+                x = x + L.c_glass_w + L.c_full_w + gap * 1.5;
+            end
             L.c_label, L.c_num = label, num;
             cw = max(0, x - gap * 1.5);
             if (o.show_bar) then cw = max(cw, 150 * sc); end

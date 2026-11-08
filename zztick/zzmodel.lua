@@ -927,6 +927,13 @@ function M.has_any_buff(buffs, ids)
     return false;
 end
 
+-- Short clock for the compact row (1.1.5): whole seconds -> '0:42', '1:47', '12:05'; 100 min and up -> '1h40'.
+function M.format_clock(sec)
+    sec = math.max(0, math.floor(sec or 0));
+    if (sec < 6000) then return string.format('%d:%02d', math.floor(sec / 60), sec % 60); end
+    return string.format('%dh%02d', math.floor(sec / 3600), math.floor(sec / 60) % 60);
+end
+
 function M.format_time(sec)
     if (sec == nil) then return '--'; end
     if (sec < 60) then return string.format('%.1fs', sec); end
